@@ -54,20 +54,12 @@ def _load_weights(get_tensor: Callable[[str], torch.Tensor], model: nn.Module) -
         "text_model.lm_head.linear.bias": model.text["lm_head"].bias,
         "region_model.coordinate_encoder.weight": region["coord_encoder"].weight,
         "region_model.coordinate_encoder.bias": region["coord_encoder"].bias,
-        "region_model.coordinate_decoder.fc1.weight": region["coord_decoder"][
-            "fc1"
-        ].weight,
-        "region_model.coordinate_decoder.fc1.bias": region["coord_decoder"]["fc1"].bias,
-        "region_model.coordinate_decoder.fc2.weight": region["coord_decoder"][
-            "fc2"
-        ].weight,
-        "region_model.coordinate_decoder.fc2.bias": region["coord_decoder"]["fc2"].bias,
+        "region_model.coordinate_head.weight": region["coord_decoder"].weight,
+        "region_model.coordinate_head.bias": region["coord_decoder"].bias,
         "region_model.size_encoder.weight": region["size_encoder"].weight,
         "region_model.size_encoder.bias": region["size_encoder"].bias,
-        "region_model.size_decoder.fc1.weight": region["size_decoder"]["fc1"].weight,
-        "region_model.size_decoder.fc1.bias": region["size_decoder"]["fc1"].bias,
-        "region_model.size_decoder.fc2.weight": region["size_decoder"]["fc2"].weight,
-        "region_model.size_decoder.fc2.bias": region["size_decoder"]["fc2"].bias,
+        "region_model.size_head.weight": region["size_decoder"].weight,
+        "region_model.size_head.bias": region["size_decoder"].bias,
     }
 
     for i in range(len(model.vision["blocks"])):
@@ -93,6 +85,7 @@ def _load_weights(get_tensor: Callable[[str], torch.Tensor], model: nn.Module) -
     for i in range(len(model.text["blocks"])):
         prefix = f"text_model.transformer.h.{i}"
         blk = model.text["blocks"][i]
+        is_moe = hasattr(blk.mlp, "router")
         weight_map.update(
             {
                 f"{prefix}.ln.weight": blk["ln"].weight,
@@ -101,12 +94,29 @@ def _load_weights(get_tensor: Callable[[str], torch.Tensor], model: nn.Module) -
                 f"{prefix}.mixer.Wqkv.bias": blk["attn"]["qkv"].bias,
                 f"{prefix}.mixer.out_proj.weight": blk["attn"]["proj"].weight,
                 f"{prefix}.mixer.out_proj.bias": blk["attn"]["proj"].bias,
-                f"{prefix}.mlp.fc1.weight": blk["mlp"]["fc1"].weight,
-                f"{prefix}.mlp.fc1.bias": blk["mlp"]["fc1"].bias,
-                f"{prefix}.mlp.fc2.weight": blk["mlp"]["fc2"].weight,
-                f"{prefix}.mlp.fc2.bias": blk["mlp"]["fc2"].bias,
+                f"{prefix}.tau_wq": blk["attn"]["tau"]["wq"],
+                f"{prefix}.tau_wv": blk["attn"]["tau"]["wv"],
+                f"{prefix}.tau_alpha": blk["attn"]["tau"]["alpha"],
             }
         )
+        if is_moe:
+            weight_map.update(
+                {
+                    f"{prefix}.gate.weight": blk["mlp"]["router"].weight,
+                    f"{prefix}.gate.bias": blk["mlp"]["router"].bias,
+                    f"{prefix}.mlp.experts.weight": blk["mlp"]["fc1"].weight,
+                    f"{prefix}.mlp.output_experts.weight": blk["mlp"]["fc2"].weight,
+                }
+            )
+        else:
+            weight_map.update(
+                {
+                    f"{prefix}.mlp.fc1.weight": blk["mlp"]["fc1"].weight,
+                    f"{prefix}.mlp.fc1.bias": blk["mlp"]["fc1"].bias,
+                    f"{prefix}.mlp.fc2.weight": blk["mlp"]["fc2"].weight,
+                    f"{prefix}.mlp.fc2.bias": blk["mlp"]["fc2"].bias,
+                }
+            )
 
     for key, tensor in weight_map.items():
         tensor.data.copy_(get_tensor(key))
